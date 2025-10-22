@@ -1,1 +1,5 @@
-"tespy" 
+tespy
+pandas
+matplotlib
+numpy
+openpyxl

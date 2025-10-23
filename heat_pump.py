@@ -70,83 +70,107 @@ class HeatPumpModel:
         self.c4.set_attr(T=80, x=0)           # condenser outlet
 
     # ------------------------------------------------------
-    
-def safe_solve(self, mode='design', design_path=None, fallback_pr=4):
+    def safe_solve(self, mode='design', fallback_pr=4):
         """
-        Wrapper for TESPy solve() with optional design_path forwarding for offdesign.
-        Retries once with a fallback compressor pressure ratio if the solver fails.
+        Wrapper for TESPy solve() with automatic compressor stabilization.
+        If invalid values occur, retry with a fixed pressure ratio.
         """
         try:
-            if design_path:
-                self.network.solve(mode=mode, design_path=design_path)
-            else:
-                self.network.solve(mode=mode)
-        except TESPyNetworkError as e:
-            print(f"TESPy solver failed in {mode} mode: {e}")
-            # only attempt a controlled fallback for design solves
-            if mode == 'design':
-                print("Retrying design solve with fallback compressor pr=\"{0}\"".format(fallback_pr))
-                self.cp.set_attr(pr=fallback_pr)
-                self.network.solve(mode=mode)
-            else:
-                raise
-
-        # basic sanity checks for compressor results
-        if getattr(self.cp, 'P', None) and (self.cp.P.val is None or self.cp.P.val < 0):
-            print("Warning: compressor power invalid after solve. Attempting single fallback solve.")
+            self.network.solve(mode=mode)
+        except TESPyNetworkError:
+            print("TESPy solver failed — retrying with fallback compressor pressure ratio...")
             self.cp.set_attr(pr=fallback_pr)
-            if design_path:
-                self.network.solve(mode=mode, design_path=design_path)
-            else:
-                self.network.solve(mode=mode)
+            self.network.solve(mode=mode)
 
+        # Check if compressor results are physical
+        if self.cp.P.val is None or self.cp.P.val < 0 or self.cp.pr.val < 1:
+            print("Invalid compressor results detected, applying fallback (pr=4).")
+            self.cp.set_attr(pr=fallback_pr)
+            self.network.solve(mode=mode)
 
     # ------------------------------------------------------
-    
-def run_design(self, save_path='design_case.json'):
-        """Run design-point simulation and save design state for later off-design runs."""
+    def run_design(self):
+        """Run design-point simulation."""
         print("\n=== TESPy Design Simulation ===")
         self.safe_solve('design')
         self.network.print_results()
 
-        # save design case for offdesign use
-        try:
-            self.network.save(save_path)
-            print(f"Design case saved to {save_path}")
-        except Exception as e:
-            print(f"Warning: could not save design case: {e}")
-
-        COP = abs(self.co.Q.val) / self.cp.P.val if self.cp.P.val else None
+        COP = abs(self.co.Q.val) / self.cp.P.val
         print(f"\nDesign Results:")
-        print(f"  COP                = {COP:.2f}" if COP else "  COP                = None")
+        print(f"  COP                = {COP:.2f}")
         print(f"  Compressor Power   = {self.cp.P.val:.2f} kW")
         print(f"  Condenser Heat Q   = {self.co.Q.val:.2f} kW")
         print(f"  Evaporator Heat Q  = {self.ev.Q.val:.2f} kW")
         return COP
 
-def run_offdesign(self, dT_source=-5, design_path='design_case.json'):
-        """Simulate off-design case (e.g., colder heat source) using saved design case."""
+    # ------------------------------------------------------
+    def run_offdesign(self, dT_source=-5):
+        """Simulate off-design case (e.g., colder heat source)."""
         print("\n=== TESPy Off-Design Simulation ===")
         base_T = self.c2.T.val
         new_T = base_T + dT_source
         self.c2.set_attr(T=new_T)
+        self.safe_solve('design')
 
-        # run offdesign using the saved design case
-        self.safe_solve(mode='offdesign', design_path=design_path)
-
-        COP = abs(self.co.Q.val) / self.cp.P.val if self.cp.P.val else None
+        COP = abs(self.co.Q.val) / self.cp.P.val
         print(f"\nOff-Design Results (T_source={new_T:.1f} °C):")
-        print(f"  COP                = {COP:.2f}" if COP else "  COP                = None")
+        print(f"  COP                = {COP:.2f}")
         print(f"  Compressor Power   = {self.cp.P.val:.2f} kW")
         print(f"  Condenser Heat Q   = {self.co.Q.val:.2f} kW")
         print(f"  Evaporator Heat Q  = {self.ev.Q.val:.2f} kW")
 
-        # Restore original temperature (keeps object state like original script)
+        # Restore design condition
         self.c2.set_attr(T=base_T)
         return COP
 
-def dataset_analysis(self, dataset_path, design_path='design_case.json'):
-        """Run time-series analysis based on dataset input using offdesign solves."""
+    # ------------------------------------------------------
+    def parametric_study(self):
+        """Perform parametric study on source/sink temps and compressor efficiency."""
+        print("\n=== TESPy Parametric Study ===")
+        data = {
+            'T_source': np.linspace(0, 40, 11),
+            'T_sink': np.linspace(60, 100, 11),
+            'eta_s': np.linspace(0.75, 0.95, 11)
+        }
+        COP = {key: [] for key in data}
+        labels = {
+            'T_source': 'Evaporation temperature (°C)',
+            'T_sink': 'Condensation temperature (°C)',
+            'eta_s': 'Compressor efficiency (-)'
+        }
+
+        for T in data['T_source']:
+            self.c2.set_attr(T=T)
+            self.safe_solve('design')
+            COP['T_source'].append(abs(self.co.Q.val) / self.cp.P.val)
+        self.c2.set_attr(T=20)
+
+        for T in data['T_sink']:
+            self.c4.set_attr(T=T)
+            self.safe_solve('design')
+            COP['T_sink'].append(abs(self.co.Q.val) / self.cp.P.val)
+        self.c4.set_attr(T=80)
+
+        for eta in data['eta_s']:
+            self.cp.set_attr(eta_s=eta)
+            self.safe_solve('design')
+            COP['eta_s'].append(abs(self.co.Q.val) / self.cp.P.val)
+        self.cp.set_attr(eta_s=0.85)
+
+        fig, ax = plt.subplots(1, 3, sharey=True, figsize=(16, 6))
+        for i, key in enumerate(data):
+            ax[i].grid()
+            ax[i].scatter(data[key], COP[key], color="#1f567d", s=70)
+            ax[i].set_xlabel(labels[key])
+        ax[0].set_ylabel("COP of the Heat Pump")
+        plt.tight_layout()
+        plt.savefig("heat_pump_parametric.svg")
+        plt.show()
+        print("Saved: heat_pump_parametric.svg")
+
+    # ------------------------------------------------------
+    def dataset_analysis(self, dataset_path):
+        """Run time-series analysis based on dataset input."""
         print("\n=== Dataset-Based Simulation ===")
         xls = pd.ExcelFile(dataset_path)
         df = pd.concat([xls.parse(s) for s in xls.sheet_names], ignore_index=True)
@@ -161,7 +185,7 @@ def dataset_analysis(self, dataset_path, design_path='design_case.json'):
         T_source_in = find_col(df.columns, ["source", "T_in", "inlet"])
         T_sink_out = find_col(df.columns, ["sink", "T_out", "outlet"])
 
-        if T_source_in is None or T_sink_out is None:
+        if not (T_source_in and T_sink_out):
             print("Dataset does not contain recognizable temperature columns.")
             return
 
@@ -172,39 +196,29 @@ def dataset_analysis(self, dataset_path, design_path='design_case.json'):
             try:
                 T_src = float(row[T_source_in])
                 T_sink = float(row[T_sink_out])
-            except Exception:
-                continue
+                if np.isnan(T_src) or np.isnan(T_sink):
+                    continue
 
-            # basic sanity filter
-            if np.isnan(T_src) or np.isnan(T_sink):
-                continue
+                # Skip physically unrealistic data
+                if not (0 < T_src < 80 and 20 < T_sink < 120):
+                    continue
 
-            # set boundary temps on connections (match original style)
-            self.c1.set_attr(T=T_src)
-            self.c4.set_attr(T=T_sink)
+                self.c2.set_attr(T=T_src)
+                self.c4.set_attr(T=T_sink)
+                self.safe_solve('design')
 
-            try:
-                # run offdesign solve relative to saved design case
-                self.safe_solve(mode='offdesign', design_path=design_path)
-                COP = abs(self.co.Q.val / self.cp.P.val) if self.cp.P.val else None
+                COP = abs(self.co.Q.val) / self.cp.P.val
                 results.append({
-                    'T_source': T_src,
-                    'T_sink': T_sink,
-                    'COP': COP,
-                    'Q_cond_kW': abs(self.co.Q.val) if self.co.Q.val is not None else None,
-                    'Q_evap_kW': abs(self.ev.Q.val) if self.ev.Q.val is not None else None,
-                    'Power_kW': abs(self.cp.P.val) if self.cp.P.val is not None else None
+                    "index": i,
+                    "T_source": T_src,
+                    "T_sink": T_sink,
+                    "COP": COP,
+                    "P_comp_kW": self.cp.P.val,
+                    "Q_evap_kW": self.ev.Q.val,
+                    "Q_cond_kW": self.co.Q.val
                 })
             except Exception as e:
-                # record failed point as NaNs
-                results.append({
-                    'T_source': T_src,
-                    'T_sink': T_sink,
-                    'COP': None,
-                    'Q_cond_kW': None,
-                    'Q_evap_kW': None,
-                    'Power_kW': None
-                })
+                print(f"Skipping row {i} due to solver issue: {e}")
 
         res_df = pd.DataFrame(results)
         res_df.to_csv("hp_timeseries_metrics.csv", index=False)
@@ -220,7 +234,35 @@ def dataset_analysis(self, dataset_path, design_path='design_case.json'):
         plt.xlabel("Time Index")
         plt.ylabel("COP (-)")
         plt.grid()
-        plt.legend()
         plt.tight_layout()
-        plt.savefig('hp_cop_timeseries.png')
-        print('Saved: hp_cop_timeseries.png')
+        plt.savefig("cop_timeseries.png")
+        plt.show()
+
+        print("Saved: cop_timeseries.png")
+
+
+# ======================================================
+#  CLI ENTRY POINT
+# ======================================================
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="TESPy Heat Pump Modeling Tool")
+    parser.add_argument("--mode", type=str, default="design",
+                        choices=["design", "offdesign", "parametric", "dataset"],
+                        help="Simulation mode")
+    parser.add_argument("--data", type=str, default=None,
+                        help="Path to Excel dataset for 'dataset' mode")
+    args = parser.parse_args()
+
+    hp = HeatPumpModel(refrigerant="R134a")
+
+    if args.mode == "design":
+        hp.run_design()
+    elif args.mode == "offdesign":
+        hp.run_offdesign(dT_source=-5)
+    elif args.mode == "parametric":
+        hp.parametric_study()
+    elif args.mode == "dataset":
+        if args.data:
+            hp.dataset_analysis(args.data)
+        else:
+            print("Please specify dataset path using --data option.")

@@ -129,37 +129,138 @@ These outputs help assess performance under variable thermal and electrical cond
 ## Section-by-Section Code Explanation (heat_pump.py)
 
 ### 1. File Header
-Defines script metadata and allows command-line execution.
+```python
+#!/usr/bin/env python3
+# Heat Pump Modeling Tool using TESPy
+# Author: Paul Evahn Padlan Villareal
+```
+This defines the script metadata and enables execution from the command line (`chmod +x heat_pump.py`).
+
+---
 
 ### 2. Imports
-Imports Python libraries (argparse, pandas, matplotlib, numpy) and TESPy modules for modeling.
+```python
+import argparse, pandas as pd, matplotlib.pyplot as plt, numpy as np
+from tespy.networks import Network
+from tespy.components import CycleCloser, Compressor, Valve, SimpleHeatExchanger
+from tespy.connections import Connection
+from tespy.tools.helpers import TESPyNetworkError
+```
+These libraries enable:
+- CLI parsing (`argparse`)
+- Data handling (`pandas`, `numpy`)
+- Visualization (`matplotlib`)
+- TESPy thermodynamic modeling
+
+---
 
 ### 3. Class Definition
-Encapsulates all model setup and methods within `HeatPumpModel` for modularity and reuse.
+```python
+class HeatPumpModel:
+    def __init__(self, refrigerant="R134a"):
+        self.network = Network(fluids=[refrigerant])
+```
+Defines the main object-oriented structure.  
+The constructor initializes:
+- TESPy Network with defined units (°C, bar, kW).
+- Model components (CycleCloser, Evaporator, Compressor, etc.).
+- Refrigerant composition (R134a).
+
+---
 
 ### 4. Network Configuration
-Defines all TESPy components and their interconnections for the refrigerant circuit.
+Connections define refrigerant flow:
+```python
+self.c1 = Connection(self.cc, 'out1', self.ev, 'in1')
+self.c2 = Connection(self.ev, 'out1', self.cp, 'in1')
+self.c3 = Connection(self.cp, 'out1', self.co, 'in1')
+self.c4 = Connection(self.co, 'out1', self.va, 'in1')
+self.c0 = Connection(self.va, 'out1', self.cc, 'in1')
+```
+TESPy uses these to maintain mass and energy continuity across the loop.
+
+---
 
 ### 5. Default Parameters
-Sets design operating conditions (ηₛ = 0.85, Q_cond = 1000 kW, etc.).
+```python
+self.co.set_attr(pr=0.98, Q=-1000)
+self.cp.set_attr(eta_s=0.85)
+self.c2.set_attr(T=20, x=1)
+self.c4.set_attr(T=80, x=0)
+```
+Defines nominal (design) conditions:
+- Condenser provides 1000 kW heat at 80 °C.
+- Compressor efficiency is 0.85.
+- Evaporator outlet vapor is at 20 °C.
+
+---
 
 ### 6. Safe Solver Function
-Ensures model stability by retrying failed TESPy solutions with fallback pressure ratios.
+```python
+def safe_solve(self, mode='design', fallback_pr=4):
+```
+TESPy may fail under off-design states.  
+This function retries with a fallback compressor pressure ratio if solver errors occur — ensuring model robustness.
+
+---
 
 ### 7. Design Simulation
-Runs nominal operation and prints COP, compressor power, and heat rates.
+```python
+def run_design(self):
+    self.safe_solve('design')
+```
+Runs the nominal simulation and prints:
+- COP  
+- Compressor power  
+- Condenser and evaporator loads  
+
+---
 
 ### 8. Off-Design Simulation
-Simulates reduced source temperature and outputs new performance data.
+```python
+def run_offdesign(self, dT_source=-5):
+```
+Simulates reduced source temperature (e.g., colder ambient).  
+Adjusts the evaporator outlet temp by –5 °C, solves, and reports new performance metrics.
+
+---
 
 ### 9. Parametric Study
-Sweeps T_source, T_sink, and ηₛ to analyze COP trends and saves a plot.
+```python
+def parametric_study(self):
+```
+Performs systematic sweeps for:
+- T_source (0–40 °C)
+- T_sink (60–100 °C)
+- η_s (Compressor Efficiency) (0.75–0.95)
+
+Each variable’s effect on COP is plotted and saved as `heat_pump_parametric.svg`.
+
+---
 
 ### 10. Dataset Simulation
-Loads Excel data, iterates through entries, computes COP, saves results (CSV and plot).
+```python
+def dataset_analysis(self, dataset_path):
+```
+Reads an Excel dataset and loops through temperature entries to:
+- Update model parameters
+- Run simulations for each time point
+- Export results (`hp_timeseries_metrics.csv`)
+- Plot COP time evolution (`cop_timeseries.png`)
+
+---
 
 ### 11. Command-Line Interface (CLI)
-Allows mode selection via terminal using `--mode` and `--data` arguments.
+```python
+if __name__ == "__main__":
+```
+Allows users to select modes via command-line flags:
+```bash
+python heat_pump.py --mode design
+python heat_pump.py --mode offdesign
+python heat_pump.py --mode parametric
+python heat_pump.py --mode dataset --data HP_case_data.xlsx
+```
 
 ---
 

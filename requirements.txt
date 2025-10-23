@@ -1,5 +1,5 @@
-tespy
-pandas
-matplotlib
-numpy
-openpyxl
+tespy==0.9.6
+pandas>=1.5,<2.0
+matplotlib>=3.7,<3.9
+openpyxl>=3.1,<3.2
+numpy>=1.24,<1.26

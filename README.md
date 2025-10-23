@@ -1,51 +1,78 @@
-# Heat Pump Modeling Tool using TESPy
+# Heat Pump Modeling Tool (TESPy)
 
-Author: **Paul Evahn Padlan Villareal**  
-Email: **pep.villareal@gmail.com**  
-Date: 2025-10-23
+**Author:** Paul Evahn Padlan Villareal  
+**Date:** 25 October 2025  
 
 ---
 
 ## Overview
-This project implements a **heat pump modeling tool** using the [TESPy](https://github.com/oemof/tespy) library.  
-It models a vapor compression heat pump capable of simulating **design**, **off-design**, and **time-series (dataset)** conditions.
 
-The tool is object-oriented, reproducible, and provides visual and tabular performance metrics including COP, compressor power, and heat transfer rates.
+This repository contains a Heat Pump Modeling Tool developed in Python using the [TESPy](https://github.com/oemof/tespy) library.  
+It simulates design, off-design, parametric, and dataset-driven operating conditions for a vapor-compression heat pump system.
 
----
-
-## Features
-- **Design simulation** at nominal operation conditions.
-- **Off-design simulation** using TESPy’s saved design-state workflow.
-- **Dataset-driven time series simulation** (e.g., ambient/source temperature changes).
-- **Automatic fallback handling** if TESPy solver diverges.
-- **Visualization outputs** for COP trends and system performance.
+The tool demonstrates:
+- Object-oriented engineering modeling in Python.
+- Simulation of thermodynamic behavior under both steady and variable conditions.
+- Integration with Excel datasets for real-world scenarios.
+- Visualization of key performance metrics.
 
 ---
 
-## Environment Setup
+## Objectives
 
-The project uses the following pinned dependencies:
+The goal is to build a flexible heat pump model that:
+
+1. Simulates design and off-design operating points.
+2. Allows for parameter adjustments (temperatures, efficiencies, and loads).
+3. Processes time-series datasets to compute performance metrics.
+4. Produces plots and CSV outputs summarizing system behavior.
+
+---
+
+## Model Description
+
+### Components
+
+| Component | TESPy Class | Description |
+|------------|--------------|-------------|
+| CycleCloser | `CycleCloser` | Closes the refrigerant loop for continuity. |
+| Evaporator | `SimpleHeatExchanger` | Extracts heat from the low-temperature source. |
+| Compressor | `Compressor` | Increases refrigerant pressure and temperature. |
+| Condenser | `SimpleHeatExchanger` | Rejects heat to the high-temperature sink. |
+| Expansion Valve | `Valve` | Reduces refrigerant pressure before the evaporator inlet. |
+
+### Working Fluid
+Refrigerant used: R134a
+
+TESPy automatically calculates thermodynamic properties and ensures energy and mass balance consistency.
+
+---
+
+## Installation
+
+### Create a clean environment
 ```bash
-# requirements.txt
-
-python >=3.10,<3.12
-tespy==0.9.6
-pandas>=1.5,<2.0
-matplotlib>=3.7,<3.9
-openpyxl>=3.1,<3.2
-numpy>=1.24,<1.26
-```
-
-### Install Environment
-```bash
-# Create environment (recommended)
-conda create -n hp_env python=3.10
+conda create -n hp_env python=3.11
 conda activate hp_env
-
-# Install dependencies
-pip install -r requirements.txt
+pip install tespy pandas matplotlib numpy
 ```
+
+### Clone the repository
+```bash
+git clone https://github.com/<your-username>/heat-pump-model.git
+cd heat-pump-model
+```
+
+---
+
+## Simulation Modes
+
+| Mode | Description | Command |
+|------|--------------|----------|
+| Design | Solves the heat pump under nominal (design) conditions. | `python heat_pump.py --mode design` |
+| Off-Design | Solves for reduced source temperature (e.g., 5 °C drop). | `python heat_pump.py --mode offdesign` |
+| Parametric Study | Performs parameter sweeps for source temp, sink temp, and compressor efficiency. | `python heat_pump.py --mode parametric` |
+| Dataset Mode | Runs a time-series simulation using an Excel dataset of heat source/sink temperatures. | `python heat_pump.py --mode dataset --data HP_case_data.xlsx` |
 
 ---
 
@@ -96,46 +123,6 @@ For each simulation step, the model computes:
 - Condenser Heat (Q_cond)  
 
 These outputs help assess performance under variable thermal and electrical conditions.
-
----
-
-## Running Simulations
-
-### 1. Design Mode
-Run a baseline design-point simulation and **save** the design case file (`design_case.json`).
-```bash
-python heat_pump.py --mode design
-```
-Output files:
-- `design_case.json` — saved TESPy design state for offdesign use.
-- `hp_design_documentation.txt` — model summary (optional if `document_model` is called).
-
-### 2. Off-Design Mode
-Use the saved design case to simulate altered source conditions (e.g., -5°C temperature shift):
-```bash
-python heat_pump.py --mode offdesign --design-path design_case.json
-```
-This will:
-- Load the saved design state.
-- Adjust evaporator inlet temperature.
-- Solve using TESPy’s true `offdesign` mode.
-
-Output files:
-- `offdesign_results.csv` — numerical results.
-
-### 3. Dataset Mode
-Run time-series simulation using an Excel dataset.
-```bash
-python heat_pump.py --mode dataset --data HP_case_data.xlsx --design-path design_case.json
-```
-This command:
-- Loads the specified dataset.
-- Applies temperature pairs (source/sink) row-by-row.
-- Runs each timestep as an offdesign solve.
-
-Output files:
-- `hp_timeseries_metrics.csv` — COP, Q_cond, Q_evap, Power per timestep.
-- `hp_cop_timeseries.png` — plotted COP performance.
 
 ---
 
@@ -277,48 +264,40 @@ python heat_pump.py --mode dataset --data HP_case_data.xlsx
 
 ---
 
-## Example Workflow (Notebook)
+## Design vs. Off-Design Conditions
 
-A minimal Jupyter notebook `run_demo.ipynb` is included with the following example:
-```python
-from heat_pump import HeatPumpModel
-
-hp = HeatPumpModel()
-# Step 1 — Design case
-design_cop = hp.run_design(save_path='design_case.json')
-
-# Step 2 — Off-design run
-hp.run_offdesign(dT_source=-5, design_path='design_case.json')
-
-# Step 3 — Dataset simulation
-hp.dataset_analysis('HP_case_data.xlsx', design_path='design_case.json')
-```
-This notebook visualizes COP and performance trends interactively.
+| Condition | Description | Example |
+|------------|--------------|----------|
+| Design | Optimal parameters (ηₛ = 0.85, source 40→10°C, sink 40→90°C, Q = 1000 kW). | `python heat_pump.py --mode design` |
+| Off-Design | Part-load or reduced source temperature (e.g., –5 °C). | `python heat_pump.py --mode offdesign` |
 
 ---
 
-## Outputs Summary
-| File | Description |
-|------|--------------|
-| `design_case.json` | Saved TESPy network for offdesign use |
-| `offdesign_results.csv` | Results of off-design run |
-| `hp_timeseries_metrics.csv` | Full time-series performance dataset |
-| `hp_cop_timeseries.png` | COP vs time plot |
-| `heat_pump_parametric.svg` | Parametric COP plots (optional) |
+## Visualization Examples
+
+### Parametric Study (COP vs. Key Variables)
+Output: `heat_pump_parametric.svg`
+
+### COP Time Series (from dataset)
+Output: `cop_timeseries.png`
 
 ---
 
-## Troubleshooting
-- If TESPy convergence errors occur, the tool automatically retries with a fallback compressor pressure ratio (`pr=4`).
-- Ensure your dataset columns contain clear source/sink temperature identifiers (`source`, `sink`, `T_in`, `T_out`, etc.).
+## Notes & Recommendations
+- The model is modular — additional components or refrigerants can be easily integrated.
+- TESPy ensures thermodynamic consistency.
+- Results are reproducible for both steady and transient-like dataset inputs.
 
 ---
 
-## License
-This project is distributed for evaluation and demonstration purposes under an **MIT-like open license**.
+## Questions or Support
+If you have any questions, please contact:  
+Email: pep.villareal@gmail.com
 
 ---
 
-© 2025 Paul Evahn Padlan Villareal — All rights reserved.
+## References
+- [TESPy Documentation](https://tespy.readthedocs.io/)
+- OEMoF Energy Modeling Framework
 
-
+---

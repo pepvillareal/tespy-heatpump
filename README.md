@@ -49,6 +49,56 @@ pip install -r requirements.txt
 
 ---
 
+## Input Dataset
+
+Input data must be an Excel file (`.xlsx`) that contains heat source and heat sink temperatures.
+
+### Example structure
+
+| Time | T_source_in (°C) | T_sink_out (°C) |
+|------|------------------:|----------------:|
+| 0 | 25.0 | 70.0 |
+| 1 | 26.5 | 71.0 |
+| 2 | 27.0 | 72.0 |
+
+Notes:
+- The script automatically detects relevant column names containing “source”, “sink”, “inlet”, or “outlet”.
+- It can process multiple sheets by merging them into a single dataset.
+
+---
+
+## Outputs
+
+After each simulation, the following files are generated:
+
+| File | Description |
+|------|--------------|
+| heat_pump_parametric.svg | COP plots from parametric study (vs. temperature & efficiency). |
+| hp_timeseries_metrics.csv | Time-series results (COP, compressor power, Q values). |
+| cop_timeseries.png | COP variation plot over dataset time index. |
+
+### Example CSV Output
+
+| index | T_source | T_sink | COP | P_comp_kW | Q_evap_kW | Q_cond_kW |
+|------:|----------:|--------:|----:|-----------:|-----------:|-----------:|
+| 0 | 25.0 | 70.0 | 3.52 | 284.5 | 1000 | -1285 |
+| 1 | 26.5 | 71.0 | 3.60 | 278.0 | 1000 | -1280 |
+
+---
+
+## Key Calculations
+
+For each simulation step, the model computes:
+
+- Coefficient of Performance (COP) = |Q_cond| / P_comp  
+- Compressor Power (P_comp)  
+- Evaporator Heat (Q_evap)  
+- Condenser Heat (Q_cond)  
+
+These outputs help assess performance under variable thermal and electrical conditions.
+
+---
+
 ## Running Simulations
 
 ### 1. Design Mode
@@ -270,4 +320,5 @@ This project is distributed for evaluation and demonstration purposes under an *
 ---
 
 © 2025 Paul Evahn Padlan Villareal — All rights reserved.
+
 
